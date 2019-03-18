@@ -180,6 +180,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
             f for f in corpus_tar if _is_relative(tmp_dir, f.name) and
             not _file_exists(tmp_dir, f.name)
         ]
+        tf.logging.info('Extracting %s into directory %s', compressed_file, target_dir)
         corpus_tar.extractall(target_dir, members=members)
 
     data_tuples = _collect_data(tmp_dir)
