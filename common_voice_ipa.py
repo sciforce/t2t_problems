@@ -207,7 +207,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
         yield {
             "waveforms": wav_data,
             "waveform_lens": [len(wav_data)],
-            "targets": text_encoder.encode(text_data, lang),
+            "targets": text_data,
             "raw_transcript": [text_data],
             "utt_id": [utt_id],
             "spk_id": ["unknown"],
