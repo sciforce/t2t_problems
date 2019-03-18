@@ -72,7 +72,7 @@ class IPAEncoder(text_encoder.TextEncoder):
         if phone not in self._vocab:
           self._vocab.append(phone)
         res.append(self._vocab.index(phone))
-    return res
+    return res + [text_encoder.EOS_ID]
 
   def store_vocab(self, filename):
     with open(filename, 'w') as fid:
