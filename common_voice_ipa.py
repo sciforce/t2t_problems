@@ -200,14 +200,14 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
           tf.logging.warn('Failed encoding file: %s', media_file)
           continue
         try:
-          text_data = text_encoder.encode(text_data, lang)
+          ipa_data = text_encoder.encode(text_data, lang)
         except Exception:
           tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
           continue
         yield {
             "waveforms": wav_data,
             "waveform_lens": [len(wav_data)],
-            "targets": text_data,
+            "targets": ipa_data,
             "raw_transcript": [text_data],
             "utt_id": [utt_id],
             "spk_id": ["unknown"],
