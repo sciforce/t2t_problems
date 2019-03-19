@@ -238,20 +238,20 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
           self.generator(data_dir, tmp_dir, self.TRAIN_DATASETS), train_paths,
           self.generator(data_dir, tmp_dir, self.DEV_DATASETS), dev_paths)
 
-  def hparams(self, defaults, model_hparams):
-    super().hparams(defaults, model_hparams)
-    p = model_hparams
-    vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
-    with open(vocab_path, 'r') as fid:
-      vocab = fid.read().strip().split('\n')
-    p.vocab_size = {"inputs": None,
-                    "targets": len(vocab)}
+#   def hparams(self, defaults, model_hparams):
+#     super().hparams(defaults, model_hparams)
+#     p = model_hparams
+#     vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
+#     with open(vocab_path, 'r') as fid:
+#       vocab = fid.read().strip().split('\n')
+#     p.vocab_size = {"inputs": None,
+#                     "targets": len(vocab)}
 
-@registry.register_hparams
-def transformer_common_voice_ipa_tpu():
-  p = transformer_common_voice_tpu()
-  vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
-  with open(vocab_path, 'r') as fid:
-    vocab = fid.read().strip().split('\n')
-  p.vocab_size = {"inputs": None,
-                  "targets": len(vocab)}
+# @registry.register_hparams
+# def transformer_common_voice_ipa_tpu():
+#   p = transformer_common_voice_tpu()
+#   vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
+#   with open(vocab_path, 'r') as fid:
+#     vocab = fid.read().strip().split('\n')
+#   p.vocab_size = {"inputs": None,
+#                   "targets": len(vocab)}
