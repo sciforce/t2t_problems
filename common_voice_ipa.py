@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
 from t2t_problems.utils.ipa_utils import get_ipa
+from tensor2tensor.models.transformer import transformer_common_voice_tpu
 
 import tensorflow as tf
 
@@ -245,3 +246,12 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
       vocab = fid.read().strip().split('\n')
     p.vocab_size = {"inputs": None,
                     "targets": len(vocab)}
+
+@registry.register_hparams
+def transformer_common_voice_ipa_tpu():
+  p = transformer_common_voice_tpu()
+  vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
+  with open(vocab_path, 'r') as fid:
+    vocab = fid.read().strip().split('\n')
+  p.vocab_size = {"inputs": None,
+                  "targets": len(vocab)}
