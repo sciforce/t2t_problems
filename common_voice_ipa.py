@@ -56,6 +56,8 @@ _COMMONVOICE_TRAIN_DATASETS = ["train"]
 _COMMONVOICE_DEV_DATASETS = ["dev"]
 _COMMONVOICE_TEST_DATASETS = ["test"]
 
+TESTSET_SIZE = 1000
+
 VOCAB_FILENAME = 'vocab.txt'
 
 class IPAEncoder(text_encoder.TextEncoder):
@@ -157,7 +159,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
   @property
   def use_train_shards_for_dev(self):
     """If true, we only generate training data and hold out shards for dev."""
-    return False
+    return True
 
   def feature_encoders(self, data_dir):
     res = super().feature_encoders(data_dir)
@@ -236,7 +238,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
         data_dir, self.num_test_shards, shuffled=True)
 
     generator_utils.generate_files(
-        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths)
+        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths, max_cases=TESTSET_SIZE)
 
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
