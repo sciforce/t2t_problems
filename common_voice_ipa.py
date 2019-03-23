@@ -250,13 +250,13 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
 
   def hparams(self, defaults, model_hparams):
     super().hparams(defaults, model_hparams)
-    p = model_hparams
-    vocab_path = os.path.join(p.data_dir, VOCAB_FILENAME)
+    vocab_path = os.path.join(model_hparams.data_dir, VOCAB_FILENAME)
     with tf.gfile.Open(vocab_path) as fid:
       vocab = fid.read().strip().split('\n')
-    p.vocab_size = {"inputs": None,
-                    "targets": len(vocab)}
-    tf.logging.info('Setting vocabulary size to %d', p.vocab_size)
+    model_hparams.vocab_size = {"inputs": None,
+                                "targets": len(vocab)}
+    tf.logging.info('Setting vocabulary size to %d',
+            model_hparams.vocab_size["targets"])
 
   def eval_metrics(self):
     defaults = super().eval_metrics()
