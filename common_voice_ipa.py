@@ -82,6 +82,8 @@ class IPAEncoder(text_encoder.TextEncoder):
     if tf.gfile.Exists(self._vocab_file):
       with tf.gfile.Open(self._vocab_file, 'r') as fid:
         self._vocab = fid.read().strip().split('\n')
+    else:
+      tf.logging.info('Loading vocab from %s failed', self._vocab_file)
 
   def store_vocab(self):
     with tf.gfile.Open(self._vocab_file, 'w') as fid:
@@ -201,33 +203,36 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
     encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
     text_encoder = encoders["targets"]
-    for dataset in datasets:
-      data_tuples = (tup for tup in data_tuples if tup[0].startswith(dataset))
-      for utt_id, media_file, text_data, lang in tqdm.tqdm(
-          sorted(data_tuples)[start_from:]):
-        if how_many > 0 and i == how_many:
-          return
-        i += 1
-        try:
-          wav_data = audio_encoder.encode(media_file)
-        except Exception:
-          tf.logging.warn('Failed encoding file: %s', media_file)
-          continue
-        try:
-          ipa_data = text_encoder.encode(text_data, lang)
-        except Exception:
-          tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
-          continue
-        yield {
-            "waveforms": wav_data,
-            "waveform_lens": [len(wav_data)],
-            "targets": ipa_data,
-            "raw_transcript": [text_data],
-            "utt_id": [utt_id],
-            "spk_id": ["unknown"],
-            "lang": lang,
-        }
-    text_encoder.store_vocab()
+    try:
+      for dataset in datasets:
+        data_tuples = (tup for tup in data_tuples if tup[0].startswith(dataset))
+        for utt_id, media_file, text_data, lang in tqdm.tqdm(
+            sorted(data_tuples)[start_from:]):
+          if how_many > 0 and i == how_many:
+            text_encoder.store_vocab()
+            return
+          i += 1
+          try:
+            wav_data = audio_encoder.encode(media_file)
+          except Exception:
+            tf.logging.warn('Failed encoding file: %s', media_file)
+            continue
+          try:
+            ipa_data = text_encoder.encode(text_data, lang)
+          except Exception:
+            tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
+            continue
+          yield {
+              "waveforms": wav_data,
+              "waveform_lens": [len(wav_data)],
+              "targets": ipa_data,
+              "raw_transcript": [text_data],
+              "utt_id": [utt_id],
+              "spk_id": ["unknown"],
+              "lang": lang,
+          }
+    except GeneratorExit:
+      text_encoder.store_vocab()
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
