@@ -32,6 +32,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
 from t2t_problems.utils.ipa_utils import get_ipa
 from tensor2tensor.models.transformer import transformer_common_voice_tpu
+from tensor2tensor.utils import metrics
 
 import tensorflow as tf
 
@@ -58,12 +59,12 @@ _COMMONVOICE_TEST_DATASETS = ["test"]
 VOCAB_FILENAME = 'vocab.txt'
 
 class IPAEncoder(text_encoder.TextEncoder):
-  def __init__(self, vocab=None):
+  def __init__(self, data_dir):
     super(IPAEncoder, self).__init__(num_reserved_ids=0)
-    if vocab is not None:
-      self._vocab = vocab
-    else:
-      self._vocab = text_encoder.RESERVED_TOKENS
+    self._data_dir = data_dir
+    self._vocab_file = os.path.join(self._data_dir, VOCAB_FILENAME)
+    self._vocab = text_encoder.RESERVED_TOKENS
+    self.load_vocab()
 
   def encode(self, s, lang='en'):
     res = []
@@ -75,8 +76,13 @@ class IPAEncoder(text_encoder.TextEncoder):
         res.append(self._vocab.index(phone))
     return res + [text_encoder.EOS_ID]
 
-  def store_vocab(self, filename):
-    with open(filename, 'w') as fid:
+  def load_vocab(self):
+    if tf.gfile.Exists(self._vocab_file):
+      with tf.gfile.Open(self._vocab_file, 'r') as fid:
+        self._vocab = fid.read().strip().split('\n')
+
+  def store_vocab(self):
+    with tf.gfile.Open(self._vocab_file, 'w') as fid:
       fid.write('\n'.join(self._vocab))
 
   def decode(self, ids):
@@ -153,6 +159,11 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
     """If true, we only generate training data and hold out shards for dev."""
     return False
 
+  def feature_encoders(self, data_dir):
+    res = super().feature_encoders(data_dir)
+    res["targets"] = IPAEncoder(data_dir)
+    return res
+
   def generator(self,
                 data_dir,
                 tmp_dir,
@@ -187,7 +198,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
     data_tuples = _collect_data(tmp_dir)
     encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
-    text_encoder = IPAEncoder()
+    text_encoder = encoders["targets"]
     for dataset in datasets:
       data_tuples = (tup for tup in data_tuples if tup[0].startswith(dataset))
       for utt_id, media_file, text_data, lang in tqdm.tqdm(
@@ -214,8 +225,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
             "spk_id": ["unknown"],
             "lang": lang,
         }
-    vocab_filename = os.path.join(data_dir, VOCAB_FILENAME)
-    text_encoder.store_vocab(vocab_filename)
+    text_encoder.store_vocab()
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
@@ -247,3 +257,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
     p.vocab_size = {"inputs": None,
                     "targets": len(vocab)}
     tf.logging.info('Setting vocabulary size to %d', p.vocab_size)
+
+  def eval_metrics(self):
+    defaults = super().eval_metrics()
+    return defaults + [metrics.Metrics.EDIT_DISTANCE]
