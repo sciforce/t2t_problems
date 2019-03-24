@@ -164,33 +164,32 @@ class CommonVoice_IPA_UTF(speech_recognition.SpeechRecognitionProblem):
     encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
     text_encoder = encoders["targets"]
-    try:
-      for dataset in datasets:
-        data_tuples = (tup for tup in data_tuples if tup[0].startswith(dataset))
-        for utt_id, media_file, text_data, lang in tqdm.tqdm(
-            sorted(data_tuples)[start_from:]):
-          if how_many > 0 and i == how_many:
-            return
-          i += 1
-          try:
-            wav_data = audio_encoder.encode(media_file)
-          except Exception:
-            tf.logging.warn('Failed encoding file: %s', media_file)
-            continue
-          try:
-            ipa_data = ''.join(get_ipa(text_data, lang))
-          except Exception:
-            tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
-            continue
-          yield {
-              "waveforms": wav_data,
-              "waveform_lens": [len(wav_data)],
-              "targets": text_encoder.encode(ipa_data),
-              "raw_transcript": [text_data],
-              "utt_id": [utt_id],
-              "spk_id": ["unknown"],
-              "lang": lang,
-          }
+    for dataset in datasets:
+      data_tuples = (tup for tup in data_tuples if tup[0].startswith(dataset))
+      for utt_id, media_file, text_data, lang in tqdm.tqdm(
+          sorted(data_tuples)[start_from:]):
+        if how_many > 0 and i == how_many:
+          return
+        i += 1
+        try:
+          wav_data = audio_encoder.encode(media_file)
+        except Exception:
+          tf.logging.warn('Failed encoding file: %s', media_file)
+          continue
+        try:
+          ipa_data = ''.join(get_ipa(text_data, lang))
+        except Exception:
+          tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
+          continue
+        yield {
+            "waveforms": wav_data,
+            "waveform_lens": [len(wav_data)],
+            "targets": text_encoder.encode(ipa_data),
+            "raw_transcript": [text_data],
+            "utt_id": [utt_id],
+            "spk_id": ["unknown"],
+            "lang": lang,
+        }
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
