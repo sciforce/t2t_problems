@@ -52,7 +52,7 @@ _COMMONVOICE_URLS = ["https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335
                      "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/nl.tar.gz",
                      "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/eo.tar.gz"]
 
-_COMMONVOICE_TRAIN_DATASETS = ["train"]
+_COMMONVOICE_TRAIN_DATASETS = ["validated"]
 _COMMONVOICE_DEV_DATASETS = ["dev"]
 _COMMONVOICE_TEST_DATASETS = ["test"]
 
@@ -180,6 +180,9 @@ class CommonVoice_IPA_UTF(speech_recognition.SpeechRecognitionProblem):
           ipa_data = ''.join(get_ipa(text_data, lang))
         except Exception:
           tf.logging.warn('Failed transcribing phrase "%s" file: %s', text_data, media_file)
+          continue
+        if not wav_data:
+          tf.logging.warn('Empty waveform %s', media_file)
           continue
         yield {
             "waveforms": wav_data,
