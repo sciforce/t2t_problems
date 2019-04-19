@@ -30,7 +30,6 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
-from t2t_problems.utils.ipa_utils import get_ipa
 from tensor2tensor.models.transformer import transformer_common_voice_tpu
 from tensor2tensor.utils import metrics
 
@@ -136,6 +135,8 @@ class CommonVoice_IPA_UTF(speech_recognition.SpeechRecognitionProblem):
                 eos_list=None,
                 start_from=0,
                 how_many=0):
+    from t2t_problems.utils.ipa_utils import get_ipa
+
     del eos_list
     i = 0
 
