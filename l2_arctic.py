@@ -18,6 +18,10 @@ SAMPLE_RATE = 16000
 
 VOCAB_FILENAME = 'vocab.txt'
 
+TEST_SPEAKERS = ['RRBI']
+TRAIN_DATASET = 'train'
+TEST_DATASET = 'test'
+
 class ArpabetEncoder(text_encoder.TextEncoder):
     def __init__(self, data_dir):
         super(ArpabetEncoder, self).__init__(num_reserved_ids=0)
@@ -37,6 +41,7 @@ class ArpabetEncoder(text_encoder.TextEncoder):
         return res + [text_encoder.EOS_ID]
 
     def load_vocab(self):
+        tf.logging.info('Loading vocab from %s', self._vocab_file)
         if tf.gfile.Exists(self._vocab_file):
             with tf.gfile.Open(self._vocab_file, 'r') as fid:
                 self._vocab = fid.read().strip().split('\n')
@@ -44,6 +49,7 @@ class ArpabetEncoder(text_encoder.TextEncoder):
             tf.logging.info('Loading vocab from %s failed', self._vocab_file)
 
     def store_vocab(self):
+        tf.logging.info('Saving vocab to %s', self._vocab_file)
         with tf.gfile.Open(self._vocab_file, 'w') as fid:
             fid.write('\n'.join(self._vocab))
 
@@ -72,8 +78,9 @@ def _collect_data(directory):
             markup_path = os.path.join(speaker_dir, 'transcript', f.replace('.wav', '.txt'))
             with open(markup_path, 'r') as fid:
                 markup_text = fid.read().strip(' \n').replace(',', '')
+            dataset = TEST_DATASET if speaker in TEST_SPEAKERS else TRAIN_DATASET
             utt_id = '{}-{}'.format(speaker, f.replace('.wav', ''))
-            data_files.append((utt_id, wav_path, markup_text, speaker))
+            data_files.append((utt_id, wav_path, markup_text, speaker, dataset))
     return data_files
 
 def _collect_data_textgrids(directory):
@@ -119,8 +126,9 @@ def _collect_data_textgrids(directory):
             if parse_error:
                 continue
             markup_text = ' '.join(phones)
+            dataset = TEST_DATASET if speaker in TEST_SPEAKERS else TRAIN_DATASET
             utt_id = '{}-{}'.format(speaker, f.replace('.wav', ''))
-            data_files.append((utt_id, wav_path, markup_text, speaker))
+            data_files.append((utt_id, wav_path, markup_text, speaker, dataset))
     return data_files
 
 def _is_relative(path, filename):
@@ -138,9 +146,14 @@ class L2Arctic(speech_recognition.SpeechRecognitionProblem):
     def num_dev_shards(self):
         return 1
 
+    @property
+    def num_test_shards(self):
+        return 1
+
     def generator(self,
         data_dir,
         tmp_dir,
+        dataset,
         eos_list=None,
         start_from=0,
         how_many=0):
@@ -150,8 +163,10 @@ class L2Arctic(speech_recognition.SpeechRecognitionProblem):
         encoders = self.feature_encoders(data_dir)
         audio_encoder = encoders["waveforms"]
         text_encoder = encoders["targets"]
-        for utt_id, media_file, text_data, speaker in tqdm(
+        for utt_id, media_file, text_data, speaker, utt_dataset in tqdm(
             sorted(data_tuples)[start_from:]):
+            if dataset != utt_dataset:
+                continue
             if how_many > 0 and i == how_many:
                 return
             i += 1
@@ -177,11 +192,17 @@ class L2Arctic(speech_recognition.SpeechRecognitionProblem):
             data_dir, self.num_shards, shuffled=False)
         dev_paths = self.dev_filepaths(
             data_dir, self.num_dev_shards, shuffled=False)
+        test_paths = self.test_filepaths(
+            data_dir, self.num_test_shards, shuffled=True)
+
+        generator_utils.generate_files(
+            self.generator(data_dir, tmp_dir, TEST_DATASET), test_paths)
 
         all_paths = train_paths + dev_paths
         generator_utils.generate_files(
-            self.generator(data_dir, tmp_dir), all_paths)
+            self.generator(data_dir, tmp_dir, TRAIN_DATASET), all_paths)
         generator_utils.shuffle_dataset(all_paths)
+
 
 @registry.register_problem()
 class L2ArcticArpabet(L2Arctic):
@@ -193,6 +214,7 @@ class L2ArcticArpabet(L2Arctic):
     def generator(self,
         data_dir,
         tmp_dir,
+        dataset,
         eos_list=None,
         start_from=0,
         how_many=0):
@@ -203,9 +225,12 @@ class L2ArcticArpabet(L2Arctic):
         audio_encoder = encoders["waveforms"]
         text_encoder = encoders["targets"]
         try:
-            for utt_id, media_file, text_data, speaker in tqdm(
+            for utt_id, media_file, text_data, speaker, utt_dataset in tqdm(
                 sorted(data_tuples)[start_from:]):
+                if dataset != utt_dataset:
+                    continue
                 if how_many > 0 and i == how_many:
+                    text_encoder.store_vocab()
                     return
                 i += 1
                 try:
@@ -226,6 +251,7 @@ class L2ArcticArpabet(L2Arctic):
                 }
         except GeneratorExit:
             text_encoder.store_vocab()
+        text_encoder.store_vocab()
 
     def hparams(self, defaults, model_hparams):
         super().hparams(defaults, model_hparams)
