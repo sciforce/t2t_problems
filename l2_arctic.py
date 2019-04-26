@@ -11,7 +11,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.models.transformer import transformer_common_voice_tpu
+from tensor2tensor.models.transformer import transformer_librispeech, update_hparams_for_tpu
 from tensor2tensor.utils import metrics
 
 SAMPLE_RATE = 16000
@@ -262,3 +262,25 @@ class L2ArcticArpabet(L2Arctic):
                                     "targets": len(vocab)}
         tf.logging.info('Setting vocabulary size to %d',
                 model_hparams.vocab_size["targets"])
+
+
+@registry.register_hparams
+def transformer_l2_arctic():
+    """HParams for training ASR model on L2 Arctic"""
+    hparams = transformer_librispeech()
+
+    hparams.num_decoder_layers = 1
+    hparams.num_encoder_layers = 3
+    hparams.hidden_size = 256
+
+    return hparams
+
+@registry.register_hparams
+def transformer_l2_arctic_tpu():
+    """HParams for training ASR model on L2 Arctic on TPU"""
+    hparams = transformer_l2_arctic()
+    update_hparams_for_tpu(hparams)
+    hparams.max_length = 1650 * 80  # this limits inputs[1] * inputs[2]
+    hparams.max_input_seq_length = 1650
+    hparams.max_target_seq_length = 350
+    return hparams
