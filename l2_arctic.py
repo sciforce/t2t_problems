@@ -280,6 +280,7 @@ def transformer_l2_arctic_tpu():
     """HParams for training ASR model on L2 Arctic on TPU"""
     hparams = transformer_l2_arctic()
     update_hparams_for_tpu(hparams)
+    hparams.batch_size = 16
     hparams.max_length = 1650 * 80  # this limits inputs[1] * inputs[2]
     hparams.max_input_seq_length = 1650
     hparams.max_target_seq_length = 350
