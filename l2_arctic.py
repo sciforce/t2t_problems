@@ -11,7 +11,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.models.transformer import transformer_librispeech, update_hparams_for_tpu
+from tensor2tensor.models.transformer import transformer_librispeech, update_hparams_for_tpu, transformer_small
 from tensor2tensor.utils import metrics
 
 SAMPLE_RATE = 16000
@@ -267,12 +267,26 @@ class L2ArcticArpabet(L2Arctic):
 @registry.register_hparams
 def transformer_l2_arctic():
     """HParams for training ASR model on L2 Arctic"""
-    hparams = transformer_librispeech()
+    hparams = transformer_small()
+
+    hparams.max_length = 1240000
+    hparams.max_input_seq_length = 1550
+    hparams.max_target_seq_length = 350
+    hparams.batch_size = 16
+    hparams.learning_rate = 0.15
+    hparams.daisy_chain_variables = False
+    hparams.filter_size = 1536
+    hparams.num_heads = 2
+    hparams.ffn_layer = "conv_relu_conv"
+    hparams.conv_first_kernel = 9
+    hparams.weight_decay = 0
+    hparams.layer_prepostprocess_dropout = 0.2
+    hparams.relu_dropout = 0.2
 
     hparams.num_decoder_layers = 1
     hparams.num_encoder_layers = 3
-    hparams.num_hidden_layers = 1
-    hparams.hidden_size = 256
+    # hparams.num_hidden_layers = 1
+    # hparams.hidden_size = 256
 
     return hparams
 
