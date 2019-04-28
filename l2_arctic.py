@@ -275,7 +275,6 @@ def transformer_l2_arctic():
     hparams.batch_size = 16
     hparams.learning_rate = 0.15
     hparams.daisy_chain_variables = False
-    hparams.filter_size = 1536
     hparams.num_heads = 2
     hparams.ffn_layer = "conv_relu_conv"
     hparams.conv_first_kernel = 9
