@@ -271,6 +271,7 @@ def transformer_l2_arctic():
 
     hparams.num_decoder_layers = 1
     hparams.num_encoder_layers = 3
+    hparams.num_hidden_layers = 1
     hparams.hidden_size = 256
 
     return hparams
