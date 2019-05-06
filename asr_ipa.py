@@ -125,6 +125,8 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         vocab_path = os.path.join(model_hparams.data_dir, VOCAB_FILENAME)
         with tf.gfile.Open(vocab_path) as fid:
             vocab = fid.read().strip().split('\n')
+        p.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
+                      "targets": modalities.ModalityType.CLASS_LABEL}
         model_hparams.vocab_size = {"inputs": None,
                                     "targets": len(vocab)}
         tf.logging.info('Setting vocabulary size to %d',
