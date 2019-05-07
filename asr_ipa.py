@@ -8,6 +8,7 @@ from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 from tensor2tensor.models.transformer import transformer_common_voice_tpu
 from tensor2tensor.utils import metrics
+from tensor2tensor.layers import modalities
 from t2t_problems.utils.ipa_encoder import IPAEncoder
 
 import tensorflow as tf
@@ -125,8 +126,8 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         vocab_path = os.path.join(model_hparams.data_dir, VOCAB_FILENAME)
         with tf.gfile.Open(vocab_path) as fid:
             vocab = fid.read().strip().split('\n')
-        p.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
-                      "targets": modalities.ModalityType.CLASS_LABEL}
+        model_hparams.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
+                                  "targets": modalities.ModalityType.CLASS_LABEL}
         model_hparams.vocab_size = {"inputs": None,
                                     "targets": len(vocab)}
         tf.logging.info('Setting vocabulary size to %d',
