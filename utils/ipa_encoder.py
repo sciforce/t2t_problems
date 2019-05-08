@@ -39,3 +39,7 @@ class IPAEncoder(text_encoder.TextEncoder):
 
   def decode(self, ids):
     return ''.join([self._vocab[id] for id in ids])
+
+  @property
+  def vocab_size(self):
+    return len(self._vocab)

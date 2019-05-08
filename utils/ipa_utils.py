@@ -196,6 +196,9 @@ def _postprocess_by_languages(text, language, split_all_diphthongs):
 
     # Remove standalone sterss (occurs in Welsh, Latin)
     text = list(filter(lambda x: x != 'ˈ', text))
+    # Catch "envelop" strange phonemes
+    if any(map(lambda x: 'envelop' in x, text)):
+        raise IPAError(text)
 
     return text
 
