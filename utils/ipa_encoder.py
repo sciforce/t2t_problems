@@ -12,11 +12,14 @@ class IPAEncoder(text_encoder.TextEncoder):
     self._vocab = text_encoder.RESERVED_TOKENS
     self.load_vocab()
 
-  def encode(self, s, lang='en'):
+  def encode(self, s, lang='en', ignore_empty_errors=False):
     from t2t_problems.utils.ipa_utils import get_ipa
     
-    res = []
-    ipa = get_ipa(s, lang)
+    res, ipa = [], []
+    if s or not ignore_empty_errors:
+      ipa = get_ipa(s, lang, remove_semi_stress=False, split_all_diphthongs=True,
+                    split_stress_gemination=True)
+    ipa = [f'<{lang}>'] + ipa
     for phone in ipa:
       if len(phone) > 0:
         if phone not in self._vocab:

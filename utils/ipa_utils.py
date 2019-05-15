@@ -16,7 +16,8 @@ class IPAError(ValueError):
 
 DIACRITICS_LIST = r'̆|\.|\||‖|↗|↘|\d|-'
 STRESS_DIACRITICS = r'ˈ|ˌ'
-GEMINATION_DIACRITICS = r'ː|ˑ'
+SEMI_STRESS = r'ˌ'
+GEMINATION_DIACRITICS = r'ː|ˑ|:'
 
 SEP = ','
 
@@ -48,8 +49,10 @@ def _preprocessing(text, language):
     text = re.sub(r'([^\w\s])', '', text)
     return text
 
-def _postprocessing(ipa, language, remove_all_diacritics=False,
-    split_all_diphthongs=False):
+def _postprocessing(ipa, language, remove_all_stress=False,
+    remove_semi_stress=False,
+    split_all_diphthongs=False,
+    split_stress_gemination=False):
     lang_markers_pattern = r'(\([^)]+\))'
     if language != 'ja':
         # remove language switch markers
@@ -59,18 +62,39 @@ def _postprocessing(ipa, language, remove_all_diacritics=False,
         # presence of character names instead of phonemes.
         # Such transcription is useless.
         raise IPAError(ipa)
-    if remove_all_diacritics:
+    diacritics = DIACRITICS_LIST
+    if remove_all_stress:
         # remove diacritics
-        ipa = ''.join(x for x in ipa if x.isalnum())
-    else:
-        ipa = re.sub(DIACRITICS_LIST, '', ipa)
+        # ipa = ''.join(x for x in ipa if x.isalnum())
+        diacritics = r'|'.join((DIACRITICS_LIST, STRESS_DIACRITICS))
+    elif remove_semi_stress:
+        diacritics = r'|'.join((DIACRITICS_LIST, SEMI_STRESS))
+    ipa = re.sub(diacritics, '', ipa)
     ipa = re.sub(r'([\r\n])', ' ', ipa)
     # split by phonenes, keeping spaces
     ipa = [p for word in ipa.split(' ') for p in itertools.chain(word.split('_'), ' ') if p != '']
     ipa = ipa[:-1]
     ipa = _postprocess_double_consonants(ipa)
     ipa = _postprocess_double_vowels(ipa)
-    return _postprocess_by_languages(ipa, language, split_all_diphthongs)
+    ipa = _postprocess_by_languages(ipa, language, split_all_diphthongs)
+    if split_stress_gemination:
+        ipa = _split_stress_gemination(ipa)
+    return ipa
+
+def _split_stress_gemination(ipa):
+    out = []
+    for phone in ipa:
+        if phone[0] in STRESS_DIACRITICS.split('|') and len(phone) > 1:
+            out.append(phone[0])
+            phone = phone[1:]
+        gemination = None
+        if phone[-1] in GEMINATION_DIACRITICS.split('|') and len(phone) > 1:
+            gemination = phone[-1]
+            phone = phone[:-1]
+        out.append(phone)
+        if gemination is not None:
+            out.append(gemination)
+    return out
 
 def _postprocess_double_consonants(text):
     out_text = []
@@ -111,7 +135,18 @@ def _postprocess_by_languages(text, language, split_all_diphthongs):
         text = re.sub('kh', 'k̚ʷ', text)
     if 'en' in language:
         text = re.sub('əl', 'l', text)
+        text = re.sub('(\w+)(ː)ɹ', r'\1˞\2', text)
         text = re.sub('(\w+)ɹ', r'\1˞', text)
+    if language == 'tn':
+        text = re.sub('K', 'ɬ', text)
+    if language == 'ky':
+        # Replace SAMPA characters with IPA ones
+        text = re.sub('S', 'ʃ', text)
+        text = re.sub('Z', 'ʒ', text)
+        text = re.sub('oe', 'œ', text)
+        text = re.sub('\[', '', text)
+        text = re.sub('N', 'ŋ', text)
+        text = re.sub('X', 'χ', text)
     if language == 'de':
         text = re.sub('pf', 'p̪f', text)
     if language == 'la':
@@ -202,8 +237,7 @@ def _postprocess_by_languages(text, language, split_all_diphthongs):
 
     return text
 
-def get_ipa(text, language, remove_all_diacritics=False,
-    split_all_diphthongs=False):
+def get_ipa(text, language, **kwargs):
     engine.voice = language
     text = _preprocessing(text, engine.voice)
     # get ipa with '_' as phonemes separator
@@ -212,10 +246,12 @@ def get_ipa(text, language, remove_all_diacritics=False,
         process_by_words = True
     if not process_by_words:
         ipa = engine.g2p(text, ipa=1)
+        ipa = '\n'.join(filter(lambda x: not x.startswith('espeak:'), ipa.split('\n')))
     else:
         text = text.split(' ')
         ipa = ' '.join(engine.g2p(word, ipa=1) for word in text)
     if ipa.startswith('Error:'):
         raise IPAError(ipa)
-    return _postprocessing(ipa, engine.voice, remove_all_diacritics,
-        split_all_diphthongs)
+    if not ipa:
+        raise IPAError('IPA is empty')
+    return _postprocessing(ipa, engine.voice, **kwargs)
