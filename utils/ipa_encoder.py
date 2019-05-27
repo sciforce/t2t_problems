@@ -41,7 +41,10 @@ class IPAEncoder(text_encoder.TextEncoder):
       fid.write('\n'.join(self._vocab))
 
   def decode(self, ids):
-    return ''.join([self._vocab[id] for id in ids])
+    integers = list(ids)
+    if text_encoder.EOS_ID in integers:
+      integers = integers[:integers.index(text_encoder.EOS_ID)]
+    return ''.join([self._vocab[id] for id in integers])
 
   @property
   def vocab_size(self):
