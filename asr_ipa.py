@@ -130,3 +130,9 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
                                "targets": len(vocab)}
         tf.logging.info('Setting vocabulary size to %d',
                 defaults.vocab_size["targets"])
+
+    def example_reading_spec(self):
+        data_fields, data_items_to_decoders = super().example_reading_spec()
+        data_fields["partial_targets"] = tf.VarLenFeature(tf.int64)
+
+        return data_fields, data_items_to_decoders
