@@ -1,7 +1,8 @@
 import tensorflow as tf
+import re
 from tensorflow.python.util import nest
 from tensor2tensor.utils import registry
-from tensor2tensor.utils.t2t_model import T2TModel
+from tensor2tensor.utils.t2t_model import T2TModel, _del_dict_non_tensors
 from tensor2tensor.models.transformer import Transformer, features_to_nonpadding, fast_decode
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
@@ -204,14 +205,22 @@ class TransformerWithHistory(Transformer):
       decoder_self_attention_bias += common_attention.attention_bias_proximal(
           decode_length)
 
-    decoder_attention_history = {}
-    def update_decoder_attention_history():
-      for k in filter(lambda x: 'decoder' in x and not 'self' in x, self.attention_weights.keys()):
-        if k not in decoder_attention_history:
-          decoder_attention_history[k] = self.attention_weights[k]
-        else:
-          decoder_attention_history[k] = tf.concat(
-            [decoder_attention_history[k], self.attention_weights[k]], axis=2)
+    # Create tensors for encoder-decoder attention history
+    att_cache = {"attention_history": {}}
+    num_layers = hparams.num_decoder_layers or hparams.num_hidden_layers
+    att_batch_size, enc_seq_length = common_layers.shape_list(encoder_output)[0:2]
+    for layer in range(num_layers):
+      att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
+        [att_batch_size, hparams.num_heads, 0, enc_seq_length])
+
+    def update_decoder_attention_history(cache):
+      for k in filter(lambda x: "decoder" in x and not "self" in x and not "logits" in x,
+        self.attention_weights.keys()):
+        m = re.search(r"(layer_\d+)", k)
+        if m is None:
+          continue
+        cache["attention_history"][m[0]] = tf.concat(
+            [cache["attention_history"][m[0]], self.attention_weights[k]], axis=2)
 
     def symbols_to_logits_fn(ids, i, cache):
       """Go from ids to logits for next symbol."""
@@ -232,7 +241,7 @@ class TransformerWithHistory(Transformer):
             cache,
             nonpadding=features_to_nonpadding(features, "targets"))
 
-      update_decoder_attention_history()
+      update_decoder_attention_history(cache)
 
       modality_name = hparams.name.get(
           "targets",
@@ -270,9 +279,8 @@ class TransformerWithHistory(Transformer):
         top_beams=top_beams,
         alpha=alpha,
         batch_size=batch_size,
-        force_decode_length=self._decode_hparams.force_decode_length)
-
-    self.attention_weights.update(decoder_attention_history)
+        force_decode_length=self._decode_hparams.force_decode_length,
+        cache=att_cache)
 
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
@@ -280,3 +288,82 @@ class TransformerWithHistory(Transformer):
       else:
         ret["outputs"] = ret["outputs"][:, :, partial_targets_length:]
     return ret
+
+  def estimator_spec_predict(self, features, use_tpu=False):
+    """Constructs `tf.estimator.EstimatorSpec` for PREDICT (inference) mode."""
+    decode_hparams = self._decode_hparams
+    top_beams = decode_hparams.beam_size if decode_hparams.return_beams else 1
+    infer_out = self.infer(
+        features,
+        beam_size=decode_hparams.beam_size,
+        top_beams=top_beams,
+        alpha=decode_hparams.alpha,
+        decode_length=decode_hparams.extra_length,
+        use_tpu=use_tpu)
+    if isinstance(infer_out, dict):
+      outputs = infer_out["outputs"]
+      scores = infer_out["scores"]
+      attention_history = infer_out["cache"]["attention_history"]
+    else:
+      outputs = infer_out
+      scores = None
+      attention_history = {}
+
+    inputs = features.get("inputs")
+    if inputs is None:
+      inputs = features["targets"]
+
+    predictions = {
+        "outputs": outputs,
+        "scores": scores,
+        "inputs": inputs,
+        "targets": features.get("infer_targets"),
+    }
+    predictions.update(attention_history)
+
+    # Pass through remaining features
+    for name, feature in features.items():
+      if name not in list(predictions.keys()) + ["infer_targets"]:
+        if name == "decode_loop_step":
+          continue
+        if not feature.shape.as_list():
+          # All features must have a batch dimension
+          batch_size = common_layers.shape_list(outputs)[0]
+          feature = tf.tile(tf.expand_dims(feature, 0), [batch_size])
+        predictions[name] = feature
+
+    _del_dict_non_tensors(predictions)
+
+    export_out = {"outputs": predictions["outputs"]}
+    if "scores" in predictions:
+      export_out["scores"] = predictions["scores"]
+    export_out.update(attention_history)
+
+    # Necessary to rejoin examples in the correct order with the Cloud ML Engine
+    # batch prediction API.
+    if "batch_prediction_key" in predictions:
+      export_out["batch_prediction_key"] = predictions["batch_prediction_key"]
+
+    export_outputs = {
+        tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+            tf.estimator.export.PredictOutput(export_out)
+    }
+    if use_tpu:
+      # Note: important to call this before remove_summaries()
+      if self.hparams.tpu_enable_host_call:
+        host_call = self.create_eval_host_call()
+      else:
+        host_call = None
+
+      remove_summaries()
+
+      return tf.contrib.tpu.TPUEstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions,
+          host_call=host_call,
+          export_outputs=export_outputs)
+    else:
+      return tf.estimator.EstimatorSpec(
+          tf.estimator.ModeKeys.PREDICT,
+          predictions=predictions,
+          export_outputs=export_outputs)
