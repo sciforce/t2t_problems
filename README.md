@@ -1,2 +1,2 @@
 # t2t_problems
-Custom for Tensor2Tensor framework
+Custom problems and models for Tensor2Tensor framework
