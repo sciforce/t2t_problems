@@ -5,20 +5,24 @@ from tensor2tensor.data_generators import text_encoder
 VOCAB_FILENAME = 'vocab.txt'
 
 class IPAEncoder(text_encoder.TextEncoder):
-  def __init__(self, data_dir):
+  def __init__(self, data_dir, remove_lang_markers=False):
     super(IPAEncoder, self).__init__(num_reserved_ids=0)
     self._data_dir = data_dir
     self._vocab_file = os.path.join(self._data_dir, VOCAB_FILENAME)
     self._vocab = text_encoder.RESERVED_TOKENS
+    self._remove_lang_markers = remove_lang_markers
     self.load_vocab()
 
-  def encode(self, s, lang='en', ignore_empty_errors=False):
+  def encode(self, s, lang='en', is_text=True):
     from t2t_problems.utils.ipa_utils import get_ipa
     
     res, ipa = [], []
-    if s or not ignore_empty_errors:
+    if is_text:
       ipa = get_ipa(s, lang, remove_semi_stress=False, split_all_diphthongs=True,
-                    split_stress_gemination=True)
+                    split_stress_gemination=True,
+                    remove_lang_markers=self._remove_lang_markers)
+    elif s:
+      ipa = s.split(',')
     ipa = [f'<{lang}>'] + ipa
     for phone in ipa:
       if len(phone) > 0:

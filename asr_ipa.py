@@ -26,13 +26,14 @@ def _collect_data(directory):
     def _parse_corpus_csv(dataset):
         data_files = []
         csv_path = os.path.join(directory, dataset + '.csv')
-        tf.logging.info('Parsing %s', csv_path)
-        with open(csv_path, 'r') as fid:
-            lines = fid.read().strip().split('\n')
-        for i, transcript_line in tqdm(enumerate(lines)):
-            filename, lang, label = transcript_line.split('\t')
-            utt_id = '{}-{}'.format(dataset, i)
-            data_files.append((utt_id, filename, lang, label, dataset))
+        if os.path.exists(csv_path):
+            tf.logging.info('Parsing %s', csv_path)
+            with open(csv_path, 'r') as fid:
+                lines = fid.read().strip().split('\n')
+            for i, transcript_line in tqdm(enumerate(lines)):
+                filename, lang, label = transcript_line.split('\t')
+                utt_id = '{}-{}'.format(dataset, i)
+                data_files.append((utt_id, filename, lang, label, dataset))
         return data_files
 
     for dataset in (TRAIN_DATASET, TEST_DATASET, DEV_DATASET):
@@ -42,6 +43,11 @@ def _collect_data(directory):
 
 @registry.register_problem()
 class AsrIpa(speech_recognition.SpeechRecognitionProblem):
+    @property
+    def convert_to_ipa(self):
+        """If true, we assume that labels contain text, and convert it to IPA."""
+        return True
+
     @property
     def num_shards(self):
         return 20
@@ -53,6 +59,11 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
     @property
     def num_test_shards(self):
         return 1
+
+    @property
+    def use_train_shards_for_dev(self):
+        """If true, we only generate training data and hold out shards for dev."""
+        return False
 
     def feature_encoders(self, data_dir):
         res = super().feature_encoders(data_dir)
@@ -83,15 +94,14 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
                     wav_data = audio_encoder.encode(media_file)
                 except:
                     try:
-                        audio, sr = librosa.load(media_file)
-                        data_resampled = librosa.resample(audio, sr, SAMPLE_RATE)
+                        audio, sr = librosa.load(media_file, sr=SAMPLE_RATE)
                         with tempfile.NamedTemporaryFile(suffix='.wav') as fid:
-                            librosa.output.write_wav(fid.name, data_resampled, SAMPLE_RATE)
+                            librosa.output.write_wav(fid.name, audio, SAMPLE_RATE)
                             wav_data = audio_encoder.encode(fid.name)
                     except Exception as e:
                         tf.logging.error('Error reading file %s. Unhandled exception %s', media_file, str(e))
                 try:
-                    ipa_data = text_encoder.encode(text_data, lang)
+                    ipa_data = text_encoder.encode(text_data, lang, is_text=self.convert_to_ipa)
                 except Exception as e:
                     tf.logging.warn('Failed transcribing phrase "%s" file: %s Exception: %s', text_data, media_file, str(e))
                     continue
@@ -115,11 +125,17 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         test_paths = self.test_filepaths(
             data_dir, self.num_test_shards, shuffled=True)
 
-        generator_utils.generate_files(
-            self.generator(data_dir, tmp_dir, TEST_DATASET), test_paths)
-        generator_utils.generate_dataset_and_shuffle(
-            self.generator(data_dir, tmp_dir, TRAIN_DATASET), train_paths,
-            self.generator(data_dir, tmp_dir, DEV_DATASET), dev_paths)
+        if self.use_train_shards_for_dev:
+            all_paths = train_paths + dev_paths + test_paths
+            generator_utils.generate_files(
+                self.generator(data_dir, tmp_dir, TRAIN_DATASET), all_paths)
+            generator_utils.shuffle_dataset(all_paths)
+        else:
+            generator_utils.generate_files(
+                self.generator(data_dir, tmp_dir, TEST_DATASET), test_paths)
+            generator_utils.generate_dataset_and_shuffle(
+                self.generator(data_dir, tmp_dir, TRAIN_DATASET), train_paths,
+                self.generator(data_dir, tmp_dir, DEV_DATASET), dev_paths)
 
     def hparams(self, defaults, model_hparams):
         super().hparams(defaults, model_hparams)
@@ -136,3 +152,25 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         data_fields["partial_targets"] = tf.VarLenFeature(tf.int64)
 
         return data_fields, data_items_to_decoders
+
+@registry.register_problem()
+class AsrIpaPrecalc(AsrIpa):
+    @property
+    def convert_to_ipa(self):
+        return False
+
+    @property
+    def num_shards(self):
+        return 100
+
+    @property
+    def num_dev_shards(self):
+        return 1
+
+    @property
+    def num_test_shards(self):
+        return 1
+
+    @property
+    def use_train_shards_for_dev(self):
+        return True

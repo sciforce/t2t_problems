@@ -52,9 +52,10 @@ def _preprocessing(text, language):
 def _postprocessing(ipa, language, remove_all_stress=False,
     remove_semi_stress=False,
     split_all_diphthongs=False,
-    split_stress_gemination=False):
+    split_stress_gemination=False,
+    remove_lang_markers=False):
     lang_markers_pattern = r'(\([^)]+\))'
-    if language != 'ja':
+    if language != 'ja' and remove_lang_markers:
         # remove language switch markers
         ipa = re.sub(lang_markers_pattern, '', ipa)
     elif re.search(lang_markers_pattern,ipa) is not None:

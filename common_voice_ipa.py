@@ -32,6 +32,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.models.transformer import transformer_common_voice_tpu
 from tensor2tensor.utils import metrics
+from t2t_problems.utils.ipa_encoder import IPAEncoder
 
 import tensorflow as tf
 
@@ -49,7 +50,13 @@ _COMMONVOICE_URLS = ["https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335
                      "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/sl.tar.gz",
                      "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/it.tar.gz",
                      "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/nl.tar.gz",
-                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/eo.tar.gz"]
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-1/eo.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/et.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/eu.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/es.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/zh-CN.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/sv-SE.tar.gz",
+                     "https://voice-prod-bundler-ee1969a6ce8178826482b88e843c335139bd3fb4.s3.amazonaws.com/cv-corpus-2/ru.tar.gz"]
 
 _COMMONVOICE_TRAIN_DATASETS = ["train"]
 _COMMONVOICE_DEV_DATASETS = ["dev"]
@@ -58,40 +65,6 @@ _COMMONVOICE_TEST_DATASETS = ["test"]
 TESTSET_SIZE = 1000
 
 VOCAB_FILENAME = 'vocab.txt'
-
-class IPAEncoder(text_encoder.TextEncoder):
-  def __init__(self, data_dir):
-    super(IPAEncoder, self).__init__(num_reserved_ids=0)
-    self._data_dir = data_dir
-    self._vocab_file = os.path.join(self._data_dir, VOCAB_FILENAME)
-    self._vocab = text_encoder.RESERVED_TOKENS
-    self.load_vocab()
-
-  def encode(self, s, lang='en'):
-    from t2t_problems.utils.ipa_utils import get_ipa
-    
-    res = []
-    ipa = get_ipa(s, lang)
-    for phone in ipa:
-      if len(phone) > 0:
-        if phone not in self._vocab:
-          self._vocab.append(phone)
-        res.append(self._vocab.index(phone))
-    return res + [text_encoder.EOS_ID]
-
-  def load_vocab(self):
-    if tf.gfile.Exists(self._vocab_file):
-      with tf.gfile.Open(self._vocab_file, 'r') as fid:
-        self._vocab = fid.read().strip().split('\n')
-    else:
-      tf.logging.info('Loading vocab from %s failed', self._vocab_file)
-
-  def store_vocab(self):
-    with tf.gfile.Open(self._vocab_file, 'w') as fid:
-      fid.write('\n'.join(self._vocab))
-
-  def decode(self, ids):
-    return ''.join([self._vocab[id] for id in ids])
 
 def _collect_data(directory):
   """Traverses directory collecting input and target files.
@@ -107,9 +80,10 @@ def _collect_data(directory):
            if os.path.isdir(os.path.join(directory, d))]
   for lang in langs:
     lang_dir = os.path.join(directory, lang)
+    lang = lang[:2]
     transcripts = [
         filename for filename in os.listdir(lang_dir)
-        if filename.endswith(".csv") or filename.endswith(".tsv")
+        if filename.endswith(".tsv")
     ]
     for transcript in transcripts:
       transcript_path = os.path.join(lang_dir, transcript)
@@ -139,17 +113,13 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
   """Problem spec for Commonvoice using clean and noisy data."""
 
   # Select only the clean data
-  TRAIN_DATASETS = _COMMONVOICE_TRAIN_DATASETS[:1]
-  DEV_DATASETS = _COMMONVOICE_DEV_DATASETS[:1]
+  TRAIN_DATASETS = [_COMMONVOICE_TRAIN_DATASETS[0], _COMMONVOICE_DEV_DATASETS[0]]
+  DEV_DATASETS = None
   TEST_DATASETS = _COMMONVOICE_TEST_DATASETS[:1]
 
   @property
   def num_shards(self):
     return 100
-
-  @property
-  def use_subword_tokenizer(self):
-    return False
 
   @property
   def num_dev_shards(self):
@@ -166,25 +136,26 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
 
   def feature_encoders(self, data_dir):
     res = super().feature_encoders(data_dir)
-    res["targets"] = IPAEncoder(data_dir)
+    res["targets"] = IPAEncoder(data_dir, remove_lang_markers=True)
     return res
 
   def generator(self,
                 data_dir,
                 tmp_dir,
                 datasets,
-                eos_list=None,
                 start_from=0,
                 how_many=0):
-    del eos_list
     i = 0
 
     for url in _COMMONVOICE_URLS:
       filename = os.path.basename(url)
+      dirname = os.path.splitext(filename)[0]
+      dirname = os.path.splitext(dirname)[0]
+      target_dir = os.path.join(tmp_dir, dirname)
+      if os.path.exists(target_dir):
+        continue
       compressed_file = generator_utils.maybe_download(tmp_dir, filename,
                                                      url)
-      lang = filename[:2]
-      target_dir = os.path.join(tmp_dir, lang)
       if os.path.isdir(target_dir):
         continue
       read_type = "r:gz" if filename.endswith(".tgz") else "r"
@@ -234,6 +205,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
           }
     except GeneratorExit:
       text_encoder.store_vocab()
+    text_encoder.store_vocab()
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     train_paths = self.training_filepaths(
@@ -244,7 +216,7 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
         data_dir, self.num_test_shards, shuffled=True)
 
     generator_utils.generate_files(
-        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths, max_cases=TESTSET_SIZE)
+        self.generator(data_dir, tmp_dir, self.TEST_DATASETS), test_paths)#, max_cases=TESTSET_SIZE)
 
     if self.use_train_shards_for_dev:
       all_paths = train_paths + dev_paths
@@ -260,12 +232,14 @@ class CommonVoice_IPA(speech_recognition.SpeechRecognitionProblem):
     super().hparams(defaults, model_hparams)
     vocab_path = os.path.join(model_hparams.data_dir, VOCAB_FILENAME)
     with tf.gfile.Open(vocab_path) as fid:
-      vocab = fid.read().strip().split('\n')
-    model_hparams.vocab_size = {"inputs": None,
-                                "targets": len(vocab)}
+        vocab = fid.read().strip().split('\n')
+    defaults.vocab_size = {"inputs": None,
+                           "targets": len(vocab)}
     tf.logging.info('Setting vocabulary size to %d',
-            model_hparams.vocab_size["targets"])
+                    defaults.vocab_size["targets"])
 
-  def eval_metrics(self):
-    defaults = super().eval_metrics()
-    return defaults + [metrics.Metrics.EDIT_DISTANCE]
+  def example_reading_spec(self):
+    data_fields, data_items_to_decoders = super().example_reading_spec()
+    data_fields["partial_targets"] = tf.VarLenFeature(tf.int64)
+
+    return data_fields, data_items_to_decoders

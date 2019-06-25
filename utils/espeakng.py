@@ -47,7 +47,7 @@ class ESpeakNG(object):
         self._logger = logging.getLogger('espeakng')
 
     def _espeak_exe(self, args, sync=False):
-        cmd = ['espeak-ng',
+        cmd = ['speak-ng',
                '-a', str(self._volume),
                '-k', str(self._capitals),
                '-l', str(self._line_length),
