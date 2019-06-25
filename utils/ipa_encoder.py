@@ -23,7 +23,7 @@ class IPAEncoder(text_encoder.TextEncoder):
                     remove_lang_markers=self._remove_lang_markers)
     elif s:
       ipa = s.split(',')
-    ipa = [f'<{lang}>'] + ipa
+    ipa = ['<{}>'.format(lang)] + ipa
     for phone in ipa:
       if len(phone) > 0:
         if phone not in self._vocab:
