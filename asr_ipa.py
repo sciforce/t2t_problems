@@ -61,6 +61,10 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         return 1
 
     @property
+    def test_set_shuffled(self):
+        return True
+
+    @property
     def use_train_shards_for_dev(self):
         """If true, we only generate training data and hold out shards for dev."""
         return False
@@ -123,7 +127,7 @@ class AsrIpa(speech_recognition.SpeechRecognitionProblem):
         dev_paths = self.dev_filepaths(
             data_dir, self.num_dev_shards, shuffled=False)
         test_paths = self.test_filepaths(
-            data_dir, self.num_test_shards, shuffled=True)
+            data_dir, self.num_test_shards, shuffled=self.test_set_shuffled)
 
         if self.use_train_shards_for_dev:
             all_paths = train_paths + dev_paths + test_paths
@@ -174,3 +178,7 @@ class AsrIpaPrecalc(AsrIpa):
     @property
     def use_train_shards_for_dev(self):
         return True
+
+    @property
+    def test_set_shuffled(self):
+        return False

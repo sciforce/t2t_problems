@@ -132,6 +132,8 @@ def _process_diphthongs(text, split_all_diphthongs=False):
 def _postprocess_by_languages(text, language, split_all_diphthongs):
     text = SEP.join(text)
     text = re.sub(r'(\w+ː)ː', r'\1', text)
+    if 'lt' in language:
+        text = re.sub('ʲʲ', 'ʲ', text)
     if 'vi' in language:
         text = re.sub('kh', 'k̚ʷ', text)
     if 'en' in language:
@@ -185,6 +187,15 @@ def _postprocess_by_languages(text, language, split_all_diphthongs):
         text = re.sub('^ʲ{sep}'.format(sep=SEP), '', text)
     if language == 'ko':
         text = re.sub(r'(\w)h', r'\1ʰ', text)
+        text = re.sub('npʰ', 'n{sep}pʰ'.format(sep=SEP), text)
+        text = re.sub('ɫd', 'ɫ{sep}d'.format(sep=SEP), text)
+        text = re.sub('nd', 'n{sep}d'.format(sep=SEP), text)
+        text = re.sub('nˈʌ', 'n{sep}ˈ{sep}ʌ'.format(sep=SEP), text)
+        text = re.sub('ɐɡ', 'ɐ{sep}ɡ'.format(sep=SEP), text)
+        text = re.sub('ns', 'n{sep}s'.format(sep=SEP), text)
+        text = re.sub('etɕ', 'e{sep}tɕ'.format(sep=SEP), text)
+        text = re.sub('oj', 'o{sep}j'.format(sep=SEP), text)
+        text = re.sub('oʰ', 'o', text)
     if language == 'ja':
         # Delete short u (‘ɯ’) between voiceless consonants or at the end of the word.
         sub_reg_template = ('((?:m̥|n̥|ɳ̊|ɲ̊|ŋ̊|p|p̪|t̪|t|ʈ|c|k|'
@@ -252,6 +263,9 @@ def get_ipa(text, language, **kwargs):
         text = text.split(' ')
         ipa = ' '.join(engine.g2p(word, ipa=1) for word in text)
     if ipa.startswith('Error:'):
+        raise IPAError(ipa)
+    symbols = r'[]{}@/'
+    if any((c in ipa) for c in symbols):
         raise IPAError(ipa)
     if not ipa:
         raise IPAError('IPA is empty')
