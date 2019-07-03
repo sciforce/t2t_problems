@@ -43,24 +43,27 @@ class AbstractGAN(t2t_model.T2TModel):
           out_logit: the output logits (before sigmoid).
         """
         hparams = self.hparams
+        num_filters = 32
+        kernel_size = 16
+        num_blocks = 5
         with tf.variable_scope(
                 "discriminator", reuse=reuse,
                 initializer=tf.random_normal_initializer(stddev=0.02)):
-            batch_size, width = common_layers.shape_list(x)[:2]
-            # Mapping x from [bs, w, c] to [bs, 1]
-            net = tf.layers.conv1d(x, 64, (4,), strides=(2,),
-                                   padding="SAME", name="d_conv1")
-            # [bs, w/2, 64]
-            net = lrelu(net)
-            net = tf.layers.conv1d(net, 128, (4,), strides=(2,),
-                                   padding="SAME", name="d_conv2")
-            # [bs, w/4, 128]
-            if hparams.discriminator_batchnorm:
-                net = tf.layers.batch_normalization(net, training=is_training,
-                                                    momentum=0.999, name="d_bn2")
-            net = lrelu(net)
-            size = width
-            net = tf.reshape(net, [batch_size, size * 2])  # [bs, h * w * 8]
+            x = tf.squeeze(x, axis=3)
+            # Mapping x from [bs, s, 1] to [bs, 1]
+            net = x
+            for b_id in range(num_blocks):
+                with tf.variable_scope('block_{}'.format(b_id), reuse=reuse):
+                    net = tf.layers.conv1d(net, num_filters, (kernel_size,), strides=(2,),
+                                           padding="SAME", name="d_conv1")
+                    net = lrelu(net)
+                    net = tf.layers.conv1d(net, num_filters, (kernel_size,), strides=(2,),
+                                           padding="SAME", name="d_conv2")
+                    if hparams.discriminator_batchnorm:
+                        net = tf.layers.batch_normalization(net, training=is_training,
+                                                            momentum=0.999, name="d_bn2")
+                    net = lrelu(net)
+            net = tf.layers.flatten(net)  # [bs, s * N]
             net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
             if hparams.discriminator_batchnorm:
                 net = tf.layers.batch_normalization(net, training=is_training,
@@ -68,34 +71,42 @@ class AbstractGAN(t2t_model.T2TModel):
             net = lrelu(net)
             return net
 
-    def generator(self, z, is_training, out_shape):
-        """Generator outputting image in [0, 1]."""
+    def generator(self, z, is_training, samples_num):
+        """Generator outputting audio in [-1, 1]."""
         hparams = self.hparams
-        height, width, c_dim = out_shape
+        num_filters = 32
+        kernel_size = 16
+        num_blocks = 5
         batch_size = hparams.batch_size
-        with tf.variable_scope(
-                "generator",
-                initializer=tf.random_normal_initializer(stddev=0.02)):
+        with tf.variable_scope("generator", initializer=tf.random_normal_initializer(stddev=0.02)):
             net = tf.layers.dense(z, 1024, name="g_fc1")
             net = tf.layers.batch_normalization(net, training=is_training,
                                                 momentum=0.999, name="g_bn1")
             net = lrelu(net)
-            net = tf.layers.dense(net, 128 * (width // 4), name="g_fc2")
+            net = tf.layers.dense(net, samples_num // 2**num_blocks * num_filters, name="g_fc2")
             net = tf.layers.batch_normalization(net, training=is_training,
                                                 momentum=0.999, name="g_bn2")
             net = lrelu(net)
-            net = tf.reshape(net, [batch_size, width // 4, 128])
-            net = deconv1d(net, [batch_size, width // 2, 64], 4, 2, name="g_dc3")
-            net = tf.layers.batch_normalization(net, training=is_training,
-                                                momentum=0.999, name="g_bn3")
-            net = lrelu(net)
-            net = deconv1d(net, [batch_size, width, c_dim], 4, 2, name="g_dc4")
+            net = tf.reshape(net, [batch_size, samples_num // 2**num_blocks, num_filters])
+            for b_id in range(num_blocks):
+                with tf.variable_scope('block_{}'.format(b_id)):
+                    net = deconv1d(net, [batch_size, samples_num // 2**(num_blocks - b_id - 1), num_filters],
+                                   kernel_size, 2, name="g_dc{}".format(b_id + 3))
+                    net = tf.layers.batch_normalization(net, training=is_training,
+                                                        momentum=0.999, name="g_bn{}".format(b_id + 3))
+                    net = lrelu(net)
+            net = tf.layers.conv1d(net, 1, kernel_size, 1, name="g_dc{}".format(num_blocks + 3),
+                                   activation=None, padding='SAME')
             out = tf.nn.tanh(net)
+            out = tf.expand_dims(out, axis=-1)
             return out
 
     def losses(self, inputs, generated):
         """Return the losses dictionary."""
         raise NotImplementedError
+
+    def bottom(self, features):
+        return features
 
     def body(self, features):
         """Body of the model.
@@ -107,29 +118,25 @@ class AbstractGAN(t2t_model.T2TModel):
           A pair (predictions, losses) where predictions is the generated image
           and losses is a dictionary of losses (that get added for the final loss).
         """
-        print('Body:')
-        print(features)
-        print(features.keys())
-        features["targets"] = features["inputs"]
         is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
 
         # Input audios.
-        inputs = tf.to_float(features["targets_raw"])
+        inputs = tf.to_float(features["targets"])
+        batch_size, samples_num = common_layers.shape_list(inputs)[0:2]
 
         # Noise vector.
-        z = tf.random_uniform([self.hparams.batch_size,
-                               self.hparams.bottleneck_bits],
+        z = tf.random_uniform([batch_size, self.hparams.bottleneck_bits],
                               minval=-1, maxval=1, name="z")
 
         # Generator output: fake images.
-        out_shape = common_layers.shape_list(inputs)[1:3]
-        g = self.generator(z, is_training, out_shape)
+        g = self.generator(z, is_training, samples_num)
 
         losses = self.losses(inputs, g)  # pylint: disable=not-callable
 
+        num_audios = 6
         summary_g_audio = tf.reshape(
-            g[0, :], [6] + common_layers.shape_list(inputs)[1:])
-        tf.summary.audio("generated", summary_g_audio, max_outputs=6)
+            g[:num_audios, :], [num_audios, samples_num, 1])
+        tf.summary.audio("generated", summary_g_audio, sample_rate=16000, max_outputs=num_audios)
 
         if is_training:  # Returns an dummy output and the losses dictionary.
             return tf.zeros_like(inputs), losses
@@ -182,13 +189,13 @@ def sliced_audio_gan():
     hparams.learning_rate_warmup_steps = 500
     hparams.learning_rate_schedule = "constant * linear_warmup"
     hparams.label_smoothing = 0.0
-    hparams.batch_size = 128
+    hparams.batch_size = 16
     hparams.hidden_size = 128
     hparams.initializer = "uniform_unit_scaling"
     hparams.initializer_gain = 1.0
     hparams.weight_decay = 1e-6
     hparams.kernel_width = 4
-    hparams.bottleneck_bits = 128
+    hparams.add_hparam("bottleneck_bits", 128)
     hparams.add_hparam("discriminator_batchnorm", True)
     hparams.add_hparam("num_sliced_vecs", 4096)
     return hparams

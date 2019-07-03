@@ -10,7 +10,8 @@ import tensorflow as tf
 
 class AudioGanGen(problem.Problem):
     def hparams(self, defaults, model_hparams):
-        defaults.modality = {"targets": modalities.ModalityType.AUDIO}
+        defaults.modality = {"targets": modalities.ModalityType.REAL}
+        defaults.vocab_size = {"targets": None}
 
     @property
     def max_samples(self):
@@ -26,12 +27,13 @@ class AudioGanGen(problem.Problem):
 
     def feature_encoders(self, _):
         return {
-            "real_audio": audio_encoder.AudioEncoder(),
+            "targets": audio_encoder.AudioEncoder(),
         }
 
     def example_reading_spec(self):
         data_fields = {
-            "real_audio": tf.VarLenFeature(tf.float32)
+            # "targets": tf.VarLenFeature(tf.float32)
+            "targets": tf.FixedLenFeature([self.max_samples], tf.float32)
         }
         data_items_to_decoders = None
         return data_fields, data_items_to_decoders
@@ -39,7 +41,7 @@ class AudioGanGen(problem.Problem):
     def generator(self, data_dir):
         base_dir = os.path.join(data_dir, "wavs")
         encoders = self.feature_encoders(data_dir)
-        audio_encoder = encoders["real_audio"]
+        audio_encoder = encoders["targets"]
 
         for root, _, files in os.walk(base_dir):
             for file in files:
@@ -52,7 +54,7 @@ class AudioGanGen(problem.Problem):
                 assert len(wav_data) == self.max_samples
                 yield {
                     "audio_len": [self.max_samples],
-                    "real_audio": wav_data
+                    "targets": wav_data
                 }
 
     def training_filepaths(self, data_dir, num_shards, shuffled):
@@ -69,6 +71,25 @@ class AudioGanGen(problem.Problem):
         generator_utils.generate_files(
             self.generator(data_dir), train_paths)
         generator_utils.shuffle_dataset(train_paths)
+
+    def eval_metrics(self):
+        return ['audio_summary']
+
+    @property
+    def all_metrics_fns(self):
+        orig_fns = super().all_metrics_fns
+        orig_fns['audio_summary'] = audio_summary
+        return orig_fns
+
+
+def audio_summary(predictions, targets, **kwargs):
+    num_audios = 6
+    summary_g_audio = tf.reshape(predictions[:num_audios, :], [num_audios, -1, 1])
+    summary1 = tf.summary.audio("generated", summary_g_audio, sample_rate=16000, max_outputs=num_audios)
+    summary_t_audio = tf.reshape(targets[:num_audios, :], [num_audios, -1, 1])
+    summary2 = tf.summary.audio("real", summary_t_audio, sample_rate=16000, max_outputs=num_audios)
+    summary = tf.summary.merge([summary1, summary2])
+    return summary, [0.]
 
 
 @registry.register_problem
