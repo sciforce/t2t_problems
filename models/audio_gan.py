@@ -97,6 +97,7 @@ class AbstractGAN(t2t_model.T2TModel):
                     net = lrelu(net)
             net = tf.layers.conv1d(net, 1, kernel_size, 1, name="g_dc{}".format(num_blocks + 3),
                                    activation=None, padding='SAME')
+            net = net - tf.reduce_mean(net, axis=1, keepdims=True)
             out = tf.nn.tanh(net)
             out = tf.expand_dims(out, axis=-1)
             return out
@@ -133,11 +134,6 @@ class AbstractGAN(t2t_model.T2TModel):
 
         losses = self.losses(inputs, g)  # pylint: disable=not-callable
 
-        num_audios = 6
-        summary_g_audio = tf.reshape(
-            g[:num_audios, :], [num_audios, samples_num, 1])
-        tf.summary.audio("generated", summary_g_audio, sample_rate=16000, max_outputs=num_audios)
-
         if is_training:  # Returns an dummy output and the losses dictionary.
             return tf.zeros_like(inputs), losses
         return tf.reshape(g, tf.shape(inputs)), losses
@@ -166,17 +162,12 @@ class SlicedAudioGan(AbstractGAN):
     def infer(self, *args, **kwargs):  # pylint: disable=arguments-differ
         del args, kwargs
 
-        try:
-            num_channels = self.hparams.problem.num_channels
-        except AttributeError:
-            num_channels = 1
-
         with tf.variable_scope("body/audio_gan", reuse=tf.AUTO_REUSE):
             hparams = self.hparams
             z = tf.random_uniform([hparams.batch_size, hparams.bottleneck_bits],
                                   minval=-1, maxval=1, name="z")
-            out_shape = (hparams.sample_width, num_channels)
-            g_sample = self.generator(z, False, out_shape)
+            # TODO: fix num_samples passing
+            g_sample = self.generator(z, False, 4096)
             return g_sample
 
 
