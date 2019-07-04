@@ -5,11 +5,15 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 import numpy as np
 
-from models.utils import upsample_fir, resnet_block
+from models.utils import upsample_fir, downsample_fir, resnet_block
 
 
 def reverse_gradient(x):
     return -x + tf.stop_gradient(2 * x)
+
+
+def scale_gradient(x, factor):
+    return factor * x - tf.stop_gradient((factor - 1.0) * x)
 
 
 class AbstractGAN(t2t_model.T2TModel):
@@ -28,29 +32,31 @@ class AbstractGAN(t2t_model.T2TModel):
         """
         num_filters = 32
         kernel_size = 16
-        num_blocks = 4
+        num_blocks = 5
+        shapes = [x.shape]
         with tf.variable_scope(
                 "discriminator", reuse=reuse,
                 initializer=tf.random_normal_initializer(stddev=0.02)):
             x = tf.squeeze(x, axis=3)
             # Mapping x from [bs, s, 1] to [bs, 1]
-            net = x
+            net = resnet_block(x, kernel_size, num_filters, is_training)
+            shapes.append(net.shape)
             for b_id in range(num_blocks):
-                with tf.variable_scope('block_{}'.format(b_id), reuse=reuse):
-                    net = tf.layers.conv1d(net, num_filters, (kernel_size,), strides=(2,),
-                                           padding="SAME", name="d_conv1")
-                    net = tf.nn.leaky_relu(net)
-                    net = tf.layers.conv1d(net, num_filters, (kernel_size,), strides=(2,),
-                                           padding="SAME", name="d_conv2")
-                    net = tf.nn.leaky_relu(net)
+                with tf.variable_scope('block_{}'.format(b_id)):
+                    net = downsample_fir(net, 2)
+                    net = resnet_block(net, kernel_size, num_filters, is_training)
+                    shapes.append(net.shape)
             net = tf.layers.flatten(net)  # [bs, s * N]
-            net = tf.layers.dense(net, 256, activation=tf.nn.leaky_relu, name="d_fc3")
+            shapes.append(net.shape)
             net = tf.layers.dense(net, 256, activation=None, name="d_fc4")  # [bs, M]
+            shapes.append(net.shape)
 
             dis_params = sum([np.prod([d.value for d in v.shape])
-                              for v in tf.trainable_variables() if '/discriminator/' in v.name])
+                              for v in tf.trainable_variables() if '/discriminator/discriminator/' in v.name])
             if dis_params > 0:
+                shapes = ['[' + ', '.join(map(lambda xx: str(xx.value), x)) + ']' for x in shapes]
                 tf.logging.info('Discriminator parameters: {:2.1f}'.format(dis_params / 1000000))
+                tf.logging.info('Discriminator shapes flow: {}'.format(' -> '.join(shapes)))
 
             return net
 
@@ -59,23 +65,31 @@ class AbstractGAN(t2t_model.T2TModel):
         num_filters = 32
         kernel_size = 16
         num_blocks = 5
+        shapes = [z.shape]
         with tf.variable_scope("generator", initializer=tf.random_normal_initializer(stddev=0.02)):
-            net = tf.layers.dense(z, samples_num // 2**num_blocks, name="g_fc2")
+            net = tf.layers.dense(z, samples_num // 2**num_blocks * num_filters, name="g_fc2")
             net = tf.layers.batch_normalization(net, training=is_training,
                                                 momentum=0.999, name="g_bn2")
             net = tf.nn.leaky_relu(net)
-            net = tf.expand_dims(net, axis=-1)
+            net = tf.reshape(net, [-1, samples_num // 2**num_blocks, num_filters])
+            shapes.append(net.shape)
             net = resnet_block(net, kernel_size, num_filters, is_training)
+            shapes.append(net.shape)
             for b_id in range(num_blocks):
                 scale = 2 ** (num_blocks - b_id - 1)
                 with tf.variable_scope('block_{}'.format(b_id)):
                     net = upsample_fir(net, 2)
                     net = resnet_block(net, kernel_size, num_filters, is_training)
+                    shapes.append(net.shape)
             out = self.to_samples(net, 'samples_scale_{}'.format(scale))
             out = tf.expand_dims(out, axis=-1)
+            shapes.append(out.shape)
 
-            gen_params = sum([np.prod([d.value for d in v.shape]) for v in tf.trainable_variables('sliced_audio_gan/body/generator')])
+            gen_params = sum([np.prod([d.value for d in v.shape])
+                              for v in tf.trainable_variables('sliced_audio_gan/body/generator')])
+            shapes = ['[' + ', '.join(map(lambda xx: str(xx.value), x)) + ']' for x in shapes]
             tf.logging.info('Generator parameters: {:2.1f}'.format(gen_params / 1000000))
+            tf.logging.info('Generator shapes flow: {}'.format(' -> '.join(shapes)))
 
             return out
 
@@ -152,7 +166,7 @@ class SlicedAudioGan(AbstractGAN):
             return self.discriminator(x, is_training=is_training, reuse=False)
 
         generator_loss = common_layers.sliced_gan_loss(
-            inputs, reverse_gradient(generated), discriminate,
+            inputs, scale_gradient(reverse_gradient(generated), self.hparams.g_grad_factor), discriminate,
             self.hparams.num_sliced_vecs)
         return {"training": - generator_loss}
 
@@ -167,11 +181,11 @@ def sliced_audio_gan():
     hparams.learning_rate_schedule = "constant * linear_warmup"
     hparams.label_smoothing = 0.0
     hparams.batch_size = 16
-    hparams.hidden_size = 128
     hparams.initializer = "uniform_unit_scaling"
     hparams.initializer_gain = 1.0
     hparams.weight_decay = 1e-6
     hparams.kernel_width = 4
-    hparams.add_hparam("bottleneck_bits", 128)
+    hparams.add_hparam("g_grad_factor", 5)
+    hparams.add_hparam("bottleneck_bits", 256)
     hparams.add_hparam("num_sliced_vecs", 4096)
     return hparams

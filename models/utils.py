@@ -34,6 +34,28 @@ def upsample_fir(audios, scale, order=256):
         return up_op
 
 
+def downsample_fir(audios, scale, order=256):
+    scale = int(scale)
+    if scale == 1:
+        return audios
+    sample_rate = 16000.  # It is later normalizer, so can be any.
+    with tf.variable_scope('upscale_{}'.format(scale)):
+        f = get_filter('FIR', 'lowpass', order=order, frequency=sample_rate // scale // 2, sampling_rate=sample_rate)
+        filter_b = tf.constant(f['b'][:, np.newaxis, np.newaxis], dtype=tf.float32,
+                               name='up_fir_{}_{}'.format(scale, order))
+
+        def _apply_fir(audio):
+            exp_audio = tf.transpose(audio)
+            exp_audio = tf.expand_dims(exp_audio, axis=-1)
+            conv_audio = tf.nn.convolution(exp_audio, filter_b, 'SAME')
+            conv_audio = tf.squeeze(conv_audio, axis=-1)
+            return tf.transpose(conv_audio)
+
+        # Rework to upsampling with zeros.
+        down_op = tf.map_fn(_apply_fir, audios)
+        return down_op[:, ::scale, :]
+
+
 def prepare_spectrogram(audios, window=400, step=160):
     # TF spectrogram doesn't support multiple channels.
     def _do_spectrogram(audio_tensor):
