@@ -4,8 +4,9 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.utils import registry
-
 import tensorflow as tf
+
+from models.utils import prepare_spectrogram
 
 
 class AudioGanGen(problem.Problem):
@@ -73,12 +74,13 @@ class AudioGanGen(problem.Problem):
         generator_utils.shuffle_dataset(train_paths)
 
     def eval_metrics(self):
-        return ['audio_summary']
+        return ['audio_summary', 'spec_summary']
 
     @property
     def all_metrics_fns(self):
         orig_fns = super().all_metrics_fns
         orig_fns['audio_summary'] = audio_summary
+        orig_fns['spec_summary'] = spec_summary
         return orig_fns
 
 
@@ -88,6 +90,30 @@ def audio_summary(predictions, targets, **kwargs):
     summary1 = tf.summary.audio("generated", summary_g_audio, sample_rate=16000, max_outputs=num_audios)
     summary_t_audio = tf.reshape(targets[:num_audios, :], [num_audios, -1, 1])
     summary2 = tf.summary.audio("real", summary_t_audio, sample_rate=16000, max_outputs=num_audios)
+    summary = tf.summary.merge([summary1, summary2])
+    return summary, [0.]
+
+
+def spec_summary(predictions, targets, **kwargs):
+    num_audios = 6
+    g_audios = tf.reshape(predictions[:num_audios, :], [num_audios, -1, 1])
+    g_spec = prepare_spectrogram(g_audios)
+    g_spec = 1. - g_spec
+    g_spec = tf.transpose(g_spec, [0, 2, 1])
+    g_spec = tf.expand_dims(g_spec, -1)
+    g_spec = tf.image.resize_images(
+        g_spec, (g_spec.shape[1].value, g_spec.shape[1].value))
+    g_spec = g_spec[:, ::-1, :]
+    summary1 = tf.summary.image("generated", g_spec, max_outputs=num_audios)
+    p_audios = tf.reshape(targets[:num_audios, :], [num_audios, -1, 1])
+    p_audios = prepare_spectrogram(p_audios)
+    p_audios = 1. - p_audios
+    p_audios = tf.transpose(p_audios, [0, 2, 1])
+    p_audios = tf.expand_dims(p_audios, -1)
+    p_audios = tf.image.resize_images(
+        p_audios, (p_audios.shape[1].value, p_audios.shape[1].value))
+    p_audios = p_audios[:, ::-1, :]
+    summary2 = tf.summary.image("real", p_audios, max_outputs=num_audios)
     summary = tf.summary.merge([summary1, summary2])
     return summary, [0.]
 
