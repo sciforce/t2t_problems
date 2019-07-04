@@ -74,8 +74,9 @@ def resnet_block(in_data, kernel_size, num_filters, is_training):
     in_scaled = tf.layers.conv1d(inputs=in_data, kernel_size=1, filters=num_filters,
                                  activation=None, padding='same')
     x = tf.layers.conv1d(inputs=in_data, kernel_size=kernel_size, filters=num_filters,
-                         activation=tf.nn.leaky_relu, padding='same')
+                         activation=None, padding='same')
     x = tf.layers.BatchNormalization()(x, training=is_training)
+    x = tf.nn.leaky_relu(x)
     x = tf.layers.conv1d(inputs=x, kernel_size=kernel_size, filters=num_filters, activation=None,
                          padding='same')
     x = tf.layers.BatchNormalization()(x, training=is_training)

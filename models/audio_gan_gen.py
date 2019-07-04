@@ -13,6 +13,7 @@ class AudioGanGen(problem.Problem):
     def hparams(self, defaults, model_hparams):
         defaults.modality = {"targets": modalities.ModalityType.REAL}
         defaults.vocab_size = {"targets": None}
+        model_hparams.add_hparam('samples_num', self.max_samples)
 
     @property
     def max_samples(self):

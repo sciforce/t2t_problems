@@ -60,18 +60,18 @@ class AbstractGAN(t2t_model.T2TModel):
 
             return net
 
-    def generator(self, z, is_training, samples_num):
+    def generator(self, z, is_training):
         """Generator outputting audio in [-1, 1]."""
         num_filters = 32
         kernel_size = 16
         num_blocks = 5
         shapes = [z.shape]
         with tf.variable_scope("generator", initializer=tf.random_normal_initializer(stddev=0.02)):
-            net = tf.layers.dense(z, samples_num // 2**num_blocks * num_filters, name="g_fc2")
+            net = tf.layers.dense(z, self.hparams.samples_num // 2**num_blocks * num_filters, name="g_fc2")
             net = tf.layers.batch_normalization(net, training=is_training,
                                                 momentum=0.999, name="g_bn2")
             net = tf.nn.leaky_relu(net)
-            net = tf.reshape(net, [-1, samples_num // 2**num_blocks, num_filters])
+            net = tf.reshape(net, [-1, self.hparams.samples_num // 2**num_blocks, num_filters])
             shapes.append(net.shape)
             net = resnet_block(net, kernel_size, num_filters, is_training)
             shapes.append(net.shape)
@@ -123,14 +123,14 @@ class AbstractGAN(t2t_model.T2TModel):
 
         # Input audios.
         inputs = tf.to_float(features["targets"])
-        batch_size, samples_num = common_layers.shape_list(inputs)[0:2]
+        batch_size = common_layers.shape_list(inputs)[0]
 
         # Noise vector.
         z = tf.random_uniform([batch_size, self.hparams.bottleneck_bits],
                               minval=-1., maxval=1., name="z")
 
         # Generator output: fake images.
-        g = self.generator(z, is_training, samples_num)
+        g = self.generator(z, is_training)
 
         losses = self.losses(inputs, g)  # pylint: disable=not-callable
 
@@ -150,7 +150,7 @@ class AbstractGAN(t2t_model.T2TModel):
             z = tf.random_uniform([hparams.batch_size, hparams.bottleneck_bits],
                                   minval=-1, maxval=1, name="z")
             # TODO: fix num_samples passing
-            g_sample = self.generator(z, False, 4096)
+            g_sample = self.generator(z, False)
             return g_sample
 
 
