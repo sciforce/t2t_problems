@@ -5,7 +5,7 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 import numpy as np
 
-from models.utils import upsample_fir, downsample_fir, resnet_block
+from models.utils import upsample, downsample, resnet_block
 
 
 def reverse_gradient(x):
@@ -43,7 +43,7 @@ class AbstractGAN(t2t_model.T2TModel):
             shapes.append(net.shape)
             for b_id in range(num_blocks):
                 with tf.variable_scope('block_{}'.format(b_id)):
-                    net = downsample_fir(net, 2)
+                    net = downsample(net, 2, 'pool')
                     net = resnet_block(net, kernel_size, num_filters, is_training)
                     shapes.append(net.shape)
             net = tf.layers.flatten(net)  # [bs, s * N]
@@ -70,7 +70,7 @@ class AbstractGAN(t2t_model.T2TModel):
             net = tf.layers.dense(z, self.hparams.samples_num // 2**num_blocks * num_filters, name="g_fc2")
             net = tf.layers.batch_normalization(net, training=is_training,
                                                 momentum=0.999, name="g_bn2")
-            net = tf.nn.leaky_relu(net)
+            net = common_layers.lrelu(net)
             net = tf.reshape(net, [-1, self.hparams.samples_num // 2**num_blocks, num_filters])
             shapes.append(net.shape)
             net = resnet_block(net, kernel_size, num_filters, is_training)
@@ -78,7 +78,7 @@ class AbstractGAN(t2t_model.T2TModel):
             for b_id in range(num_blocks):
                 scale = 2 ** (num_blocks - b_id - 1)
                 with tf.variable_scope('block_{}'.format(b_id)):
-                    net = upsample_fir(net, 2)
+                    net = upsample(net, 2, 'tile')
                     net = resnet_block(net, kernel_size, num_filters, is_training)
                     shapes.append(net.shape)
             out = self.to_samples(net, 'samples_scale_{}'.format(scale))
@@ -104,9 +104,9 @@ class AbstractGAN(t2t_model.T2TModel):
         raise NotImplementedError
 
     def bottom(self, features):
-        batch_shape = common_layers.shape_list(features['targets'])
-        batch_shape[0] = self.hparams.batch_size
-        tf.ensure_shape(features['targets'], batch_shape)
+        # batch_shape = common_layers.shape_list(features['targets'])
+        # batch_shape[0] = self.hparams.batch_size
+        # tf.ensure_shape(features['targets'], batch_shape)
         return features
 
     def body(self, features):

@@ -4,6 +4,13 @@ import numpy as np
 from biosppy.signals.tools import get_filter
 
 
+def upsample(audios, scale, mode='fir'):
+    if mode == 'fir':
+        return upsample_fir(audios, scale)
+    else:
+        return upsample_tile(audios, scale)
+
+
 def upsample_tile(audios, scale):
     _, num_samples, channels = audios.shape.as_list()
     upsampled = tf.tile(audios, [1, 1, scale])
@@ -32,6 +39,13 @@ def upsample_fir(audios, scale, order=256):
         audios_up = upsample_tile(audios, scale)
         up_op = tf.map_fn(_apply_fir, audios_up)
         return up_op
+
+
+def downsample(audios, scale, mode='fir'):
+    if mode == 'fir':
+        return downsample_fir(audios, scale)
+    else:
+        return tf.layers.average_pooling1d(audios, scale, scale, 'same')
 
 
 def downsample_fir(audios, scale, order=256):
