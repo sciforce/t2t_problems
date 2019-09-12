@@ -182,3 +182,12 @@ class AsrIpaPrecalc(AsrIpa):
     @property
     def test_set_shuffled(self):
         return False
+
+@registry.register_problem()
+class AsrIpaLogits(AsrIpa):
+    """
+    ASR problem with identity targets modality. For inference only, to make the model return body outputs, without applying projection layer
+    """
+    def hparams(self, defaults, model_hparams):
+        super().hparams(defaults, model_hparams)
+        defaults.modality["targets"] = modalities.ModalityType.IDENTITY

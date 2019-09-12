@@ -212,6 +212,7 @@ class TransformerWithHistory(Transformer):
     for layer in range(num_layers):
       att_cache["attention_history"]["layer_%d" % layer] = tf.zeros(
         [att_batch_size, hparams.num_heads, 0, enc_seq_length])
+    att_cache["body_outputs"] = tf.zeros([att_batch_size, 1, 0, hparams.hidden_size])
 
     def update_decoder_attention_history(cache):
       for k in filter(lambda x: "decoder" in x and not "self" in x and not "logits" in x,
@@ -242,6 +243,7 @@ class TransformerWithHistory(Transformer):
             nonpadding=features_to_nonpadding(features, "targets"))
 
       update_decoder_attention_history(cache)
+      cache["body_outputs"] = tf.concat([cache["body_outputs"], body_outputs[0]], axis=2)
 
       modality_name = hparams.name.get(
           "targets",
@@ -304,10 +306,12 @@ class TransformerWithHistory(Transformer):
       outputs = infer_out["outputs"]
       scores = infer_out["scores"]
       attention_history = infer_out["cache"]["attention_history"]
+      body_outputs = {"body_outputs": infer_out["cache"]["body_outputs"]}
     else:
       outputs = infer_out
       scores = None
       attention_history = {}
+      body_outputs = {}
 
     inputs = features.get("inputs")
     if inputs is None:
@@ -317,9 +321,10 @@ class TransformerWithHistory(Transformer):
         "outputs": outputs,
         "scores": scores,
         "inputs": inputs,
-        "targets": features.get("infer_targets"),
+        "targets": features.get("infer_targets")
     }
     predictions.update(attention_history)
+    predictions.update(body_outputs)
 
     # Pass through remaining features
     for name, feature in features.items():
@@ -337,7 +342,9 @@ class TransformerWithHistory(Transformer):
     export_out = {"outputs": predictions["outputs"]}
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
+
     export_out.update(attention_history)
+    export_out.update(body_outputs)
 
     # Necessary to rejoin examples in the correct order with the Cloud ML Engine
     # batch prediction API.
